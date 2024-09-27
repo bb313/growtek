@@ -1,60 +1,41 @@
-import tkinter as tk
-from smbus2 import SMBus
+import bme680
 import time
 
-# Crear la ventana principal
-root = tk.Tk()
-root.title("Sensor Dashboard")
+# Iniciar el sensor BME680 en la dirección I2C primaria
+sensor = bme680.BME680(bme680.I2C_ADDR_PRIMARY)
 
-# Definir etiquetas para mostrar los datos de los sensores
-temp_label = tk.Label(root, text="Temperature: --", font=("Helvetica", 16))
-hum_label = tk.Label(root, text="Humidity: --", font=("Helvetica", 16))
-tvoc_label = tk.Label(root, text="TVOC: --", font=("Helvetica", 16))
-co2_label = tk.Label(root, text="CO2: --", font=("Helvetica", 16))
+# Configuración del sensor
+sensor.set_humidity_oversample(bme680.OS_2X)
+sensor.set_pressure_oversample(bme680.OS_4X)
+sensor.set_temperature_oversample(bme680.OS_8X)
+sensor.set_filter(bme680.FILTER_SIZE_3)
+sensor.set_gas_status(bme680.ENABLE_GAS_MEAS)
 
-# Colocar las etiquetas en la ventana
-temp_label.pack(pady=10)
-hum_label.pack(pady=10)
-tvoc_label.pack(pady=10)
-co2_label.pack(pady=10)
+print("Calibrating sensor, please wait...")
 
-# Dirección I2C de los sensores
-SENSOR_ENV_ADDRESS = 0x76  # M5Stack Environment Sensor II (ejemplo)
-SENSOR_TVOC_ADDRESS = 0x5A  # TVOC/eCO2 Sensor
-SENSOR_EARTH_ADDRESS = 0x77  # Earth Sensor (ejemplo)
+# Realiza una lectura inicial para calibrar el sensor (puede tardar unos segundos)
+while not sensor.get_sensor_data() or not sensor.data.heat_stable:
+    time.sleep(1)
 
-# Iniciar el bus I2C
-bus = SMBus(1)
+# Función para mostrar los datos en consola
+def display_data():
+    if sensor.get_sensor_data():
+        temperature = sensor.data.temperature
+        humidity = sensor.data.humidity
+        pressure = sensor.data.pressure
 
-# Funciones para leer los datos de los sensores
-def read_temperature_humidity():
-    # Aquí iría la lógica para leer los valores de temperatura y humedad desde el sensor
-    temperature = 25.0  # Valor ficticio
-    humidity = 50.0  # Valor ficticio
-    return temperature, humidity
+        # Si el sensor está calibrado para medir gas, mostrar esos datos también
+        if sensor.data.heat_stable:
+            gas_resistance = sensor.data.gas_resistance
+            print(f"Temperature: {temperature:.2f} °C, Humidity: {humidity:.2f} %, Pressure: {pressure:.2f} hPa, Gas Resistance: {gas_resistance:.2f} ohms")
+        else:
+            print(f"Temperature: {temperature:.2f} °C, Humidity: {humidity:.2f} %, Pressure: {pressure:.2f} hPa")
 
-def read_tvoc_co2():
-    # Leer el valor de CO2/TVOC
-    tvoc = 120  # Valor ficticio
-    co2 = 400  # Valor ficticio
-    return tvoc, co2
+# Bucle para actualizar los datos continuamente cada 5 segundos
+try:
+    while True:
+        display_data()
+        time.sleep(5)  # Actualización cada 5 segundos
+except KeyboardInterrupt:
+    print("Terminado.")
 
-def update_data():
-    # Leer los datos de los sensores
-    temp, hum = read_temperature_humidity()
-    tvoc, co2 = read_tvoc_co2()
-
-    # Actualizar las etiquetas con los nuevos valores
-    temp_label.config(text=f"Temperature: {temp:.2f} °C")
-    hum_label.config(text=f"Humidity: {hum:.2f} %")
-    tvoc_label.config(text=f"TVOC: {tvoc} ppb")
-    co2_label.config(text=f"CO2: {co2} ppm")
-
-    # Actualizar los datos cada 5 segundos
-    root.after(5000, update_data)
-
-# Iniciar la actualización de datos
-update_data()
-
-# Ejecutar el loop principal de la interfaz gráfica
-root.mainloop()
