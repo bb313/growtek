@@ -1,30 +1,52 @@
+from flask import Flask, Response, jsonify
+import cv2
 import time
-import board
 import busio
-import adafruit_bme680
+from board import SCL, SDA
+from adafruit_sht31d import SHT31D
+from bmp280 import BMP280
 
-# Inicializar I2C
-i2c = busio.I2C(board.SCL, board.SDA)
+# Inicializa Flask
+app = Flask(__name__)
 
-# Inicializar el sensor BME680
-sensor = adafruit_bme680.Adafruit_BME680_I2C(i2c)
+# Inicializa I2C y sensores
+i2c = busio.I2C(SCL, SDA)
+sht30 = SHT31D(i2c)
+bmp280 = BMP280()
 
-# Opcional: Configurar la temperatura en grados Celsius (por defecto)
-sensor.sea_level_pressure = 1013.25  # Ajusta según sea necesario
+# Inicializa la webcam en el andice 0
+webcam = cv2.VideoCapture(2)
 
-# Función para mostrar los datos del sensor
-def display_data():
-    temperature = sensor.temperature
-    gas = sensor.gas
-    humidity = sensor.humidity
-    pressure = sensor.pressure
+def get_sensor_data():
+    temperature = sht30.temperature
+    humidity = sht30.relative_humidity
+    pressure = bmp280.get_pressure()
+    return temperature, humidity, pressure
 
-    print(f"Temperature: {temperature:.2f} °C, Humidity: {humidity:.2f} %, Pressure: {pressure:.2f} hPa, Gas: {gas:.2f} ohms")
+def get_frame():
+    ret, frame = webcam.read()
+    if not ret:
+        return None
+    # Codifica la imagen en formato JPEG
+    return cv2.imencode('.jpg', frame)[1].tobytes()
 
-# Bucle para actualizar los datos continuamente
-try:
-    while True:
-        display_data()
-        time.sleep(5)  # Actualiza cada 5 segundos
-except KeyboardInterrupt:
-    print("Terminado.")
+@app.route('/video_feed')
+def video_feed():
+    def generate():
+        while True:
+            frame = get_frame()
+            if frame is None:
+                break
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            time.sleep(0.2)  # Aumenta el tiempo entre frames para aliviar la carga
+
+    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/sensor_data')
+def sensor_data():
+    temperature, humidity, pressure = get_sensor_data()
+    return jsonify(temperature=temperature, humidity=humidity, pressure=pressure)
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
